@@ -1,0 +1,96 @@
+
+# Set Working Directory ---------------------------------------------------
+getwd()
+setwd("/Users/favournoya")
+
+# Install & Load Required Packages ----------------------------------------
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(scales)
+library(ggplot2)
+library(writexl)
+
+# Load the Excel Data into R ----------------------------------------------
+data <- read_excel("/Users/favournoya/Library/CloudStorage/OneDrive-AugustanaCollege/Import + Transform.xlsx",
+                   sheet = "Data for Importation")
+
+head(data) # Making sure everything looks good
+
+# Problem 1: Divide names into First and Last columns
+data <- data %>%
+  separate(`Employee Name`, into = c("Last", "First"), sep = ", ")
+
+# Problem 2: Convert fields to proper data types
+# This time, I'm cleaning out any "$" or "," from the numbers first, just in case
+data <- data %>%
+  mutate(
+    Compensation = as.numeric(gsub("[$,]", "", Compensation)),
+    `New Comp.` = as.numeric(gsub("[$,]", "", `New Comp.`)),
+    `Job Rating` = as.integer(`Job Rating`)
+  )
+
+# Problem 3: Convert Hire Date to standard R date format
+# Since the original format is an Excel serial number, I use "1899-12-30" as the origin
+data <- data %>%
+  mutate(`Hire Date` = as.Date(`Hire Date`, origin = "1899-12-30"))
+
+# Problem 4: Calculate Tenure (in years) since the Hire Date
+# FUN FACT: I used today's date and divided by 365.25 to turn days into years (accounting for leap years)
+data <- data %>%
+  mutate(Tenure = round(as.numeric(difftime(Sys.Date(), `Hire Date`, units = "days")) / 365.25, 2))
+
+# Problem 5: Format Compensation into US Dollar format
+data <- data %>%
+  mutate(`Compensation (USD)` = dollar(Compensation))
+
+# Problem 6: Format New Compensation into US Dollar format
+data <- data %>%
+  mutate(`New Comp. (USD)` = dollar(`New Comp.`))
+
+# Problem 7: Calculate percent increase between Compensation and New Compensation
+# Here, I also tried to reorder the columns for clarity because it’s easier to make
+# sense of stuff when it flows better.
+data <- data %>%
+  mutate(`Comp Percent Increase` = round((`New Comp.` - Compensation) / Compensation * 100, 2))
+
+# Clean-up Step: Remove the original Excel column since we just
+# created our own accurate version
+data <- data %>%
+  select(-`Compensation Percentage Increase`)
+
+# Problem 8: Visualize relationship between Tenure and Compensation Increase by Department
+# For this problem, I created one scatterplot and regression line per department
+# to visualize the relationship between Years of Tenure and Percent Increase
+# in Compensation. The plots use geom_jitter() to reduce point overlap and
+# include a linear model line with confidence intervals.
+departments <- unique(data$Department)
+
+for (dept in departments) {
+  dept_data <- filter(data, Department == dept)
+  
+  p <- ggplot(dept_data, aes(x = Tenure, y = `Comp Percent Increase`)) +
+    geom_jitter(color = "dodgerblue", size = 3, width = 0.5) +  # avoids overlapping dots
+    geom_smooth(method = "lm", se = TRUE, color = "darkred", linewidth = 1) +  # regression line
+    labs(
+      title = paste("Tenure vs % Increase –", dept),
+      subtitle = "Linear Regression Model by Department",
+      x = "Years of Tenure",
+      y = "% Increase in Compensation"
+    ) +
+    theme_minimal(base_size = 13)  # cleaner fonts for presentation
+  
+  print(p)
+}
+
+# Checking the plot loop for the dept. "Training" to see if it's
+# properly working. I will know if it's working if the slope is near
+# 0 & p-value is HIGH, thus reflecting no statistically strong relationship.
+summary(lm(`Comp Percent Increase` ~ Tenure, data = dept_data))
+
+# Displaying a cleaned version of the dataset for review
+View(data)
+
+# Exporting my Updated Data to Excel
+write_xlsx(data, "/Users/favournoya/Library/CloudStorage/OneDrive-AugustanaCollege/Final_Transformed_Employee_Data.xlsx")
